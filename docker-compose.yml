@@ -49,7 +49,18 @@ services:
     volumes:
       - /root/services/terraform:/workspace
     working_dir: /workspace
-    entrypoint: ["tail", "-f", "/dev/null"]  # Keep container running
+    entrypoint: ["tail", "-f", "/dev/null"] 
+
+  ansible:
+    container_name: ansible
+    image: willhallonline/ansible:latest
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.13
+    volumes:
+      - /root/services/ansible:/runner
+    entrypoint: ["tail", "-f", "/dev/null"]
 
   # Secrets Management
   vault:
