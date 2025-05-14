@@ -1,0 +1,239 @@
+version: '3'
+
+services:
+  # CI/CD and Source Control
+  jenkins:
+    container_name: jenkins
+    image: jenkins/jenkins:lts
+    restart: unless-stopped
+    privileged: true
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.10
+    volumes:
+      - /root/services/jenkins:/var/jenkins_home
+    ports:
+      - "7500:8080"
+      - "50000:50000"
+    environment:
+      - JENKINS_OPTS="--prefix=/jenkins"
+
+  gitlab:
+    container_name: gitlab
+    image: gitlab/gitlab-ce:latest
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.11
+    volumes:
+      - /root/services/gitlab/config:/etc/gitlab
+      - /root/services/gitlab/logs:/var/log/gitlab
+      - /root/services/gitlab/data:/var/opt/gitlab
+    ports:
+      - "7501:80"
+      - "7601:443"
+      - "7602:22"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:7501'
+        gitlab_rails['gitlab_shell_ssh_port'] = 7602
+
+  # Infrastructure as Code
+  terraform:
+    container_name: terraform
+    image: hashicorp/terraform:latest
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.12
+    volumes:
+      - /root/services/terraform:/workspace
+    working_dir: /workspace
+    entrypoint: ["tail", "-f", "/dev/null"]  # Keep container running
+
+  ansible:
+    container_name: ansible
+    image: ansible/ansible-runner:latest
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.13
+    volumes:
+      - /root/services/ansible:/runner
+    entrypoint: ["tail", "-f", "/dev/null"]  # Keep container running
+
+  # Secrets Management
+  vault:
+    container_name: vault
+    image: hashicorp/vault:latest
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.14
+    ports:
+      - "7502:8200"
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=devroot
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    cap_add:
+      - IPC_LOCK
+
+  # Monitoring and Logging
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.15
+    volumes:
+      - /root/services/prometheus/config:/etc/prometheus
+      - /root/services/prometheus/data:/prometheus
+    ports:
+      - "7503:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.16
+    volumes:
+      - /root/services/grafana:/var/lib/grafana
+    ports:
+      - "7504:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+
+  elasticsearch:
+    container_name: elasticsearch
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.0
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.17
+    volumes:
+      - /root/services/elasticsearch:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
+  logstash:
+    container_name: logstash
+    image: docker.elastic.co/logstash/logstash:7.17.0
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.18
+    volumes:
+      - /root/services/logstash/pipeline:/usr/share/logstash/pipeline
+    ports:
+      - "5044:5044"
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+      - "9600:9600"
+    depends_on:
+      - elasticsearch
+
+  kibana:
+    container_name: kibana
+    image: docker.elastic.co/kibana/kibana:7.17.0
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.19
+    ports:
+      - "7505:5601"
+    environment:
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+
+  # Container Orchestration
+  minikube:
+    container_name: minikube
+    image: alpine/k8s:1.25.12
+    privileged: true
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.20
+    volumes:
+      - /root/services/minikube/kube:/root/.kube
+      - /root/services/minikube/minikube:/root/.minikube
+    ports:
+      - "7506:8001"  # For kubectl proxy
+    command: ["sh", "-c", "minikube start --driver=docker && kubectl proxy --address='0.0.0.0' --port=8001 --accept-hosts='.*'"]
+
+  # Container Management
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ce:latest
+    restart: unless-stopped
+    privileged: true
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.21
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/services/portainer:/data
+    ports:
+      - "8000:8000"
+      - "9443:9443"
+
+  # Databases
+  mysql:
+    container_name: mysql
+    image: mysql:8.0
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.22
+    volumes:
+      - /root/services/mysql:/var/lib/mysql
+    ports:
+      - "9500:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: devops
+      MYSQL_USER: devops
+      MYSQL_PASSWORD: devopspassword
+
+  mongodb:
+    container_name: mongodb
+    image: mongo:latest
+    restart: unless-stopped
+    networks:
+      server-net:
+        ipv4_address: 172.18.0.23
+    volumes:
+      - /root/services/mongodb:/data/db
+    ports:
+      - "9501:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+
+networks:
+  server-net:
+    name: server-net
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.18.0.0/16
