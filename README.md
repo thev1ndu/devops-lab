@@ -2,8 +2,6 @@
 
 A comprehensive containerized development environment with essential DevOps tools for learning, testing, and development.
 
-![DevOps Tools](https://via.placeholder.com/800x400?text=DevOps+Lab+Environment)
-
 ## 🚀 Overview
 
 This project provides a complete DevOps lab environment running in Docker containers. It includes CI/CD tools, infrastructure as code utilities, monitoring solutions, container orchestration, and more - all configured to work together out of the box.
